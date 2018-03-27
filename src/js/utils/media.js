@@ -78,7 +78,7 @@ export function getTypeFromFile (url) {
 
 	// Obtain correct MIME types
 	if (normalizedExt) {
-		if (~['mp4', 'm4v', 'ogg', 'ogv', 'webm', 'flv', 'mpeg', 'mov'].indexOf(normalizedExt)) {
+		if (~['mp4', 'm4v', 'ogg', 'ogv', 'webm', 'flv', 'mpeg', 'mov', 'webrtc'].indexOf(normalizedExt)) {
 			mime = `video/${normalizedExt}`;
 		} else if (~['mp3', 'oga', 'wav', 'mid', 'midi'].indexOf(normalizedExt)) {
 			mime = `audio/${normalizedExt}`;
@@ -128,6 +128,8 @@ export function normalizeExtension (extension) {
 		case 'oga':
 		case 'ogv':
 			return 'ogg';
+        case 'webrtc':
+            return 'webrtc';
 		default:
 			return extension;
 	}

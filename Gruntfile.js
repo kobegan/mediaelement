@@ -75,6 +75,7 @@ module.exports = function (grunt) {
 						'src/js/renderers/dash.js',
 						'src/js/renderers/flv.js',
 						'src/js/renderers/hls.js',
+                        'src/js/renderers/webrtc.js',
 						'src/js/renderers/youtube.js',
 					]),
 					// all bundle
@@ -89,6 +90,7 @@ module.exports = function (grunt) {
 						'src/js/renderers/dash.js',
 						'src/js/renderers/flv.js',
 						'src/js/renderers/hls.js',
+                        'src/js/renderers/webrtc.js',
 						'src/js/renderers/youtube.js',
 					]).concat([
 						'src/js/player.js',
