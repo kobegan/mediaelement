@@ -1,5 +1,9 @@
 ### Version History
 
+*4.3.0 (2018/03/27)*
+
+* Add webrtc renderer and its test demo
+
 *4.2.9 (2018/03/??)*
 
 * Fixed typo in documentation (https://github.com/mediaelement/mediaelement/pull/2512) @moagggi
