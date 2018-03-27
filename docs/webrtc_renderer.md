@@ -1,37 +1,38 @@
 # Usage
-* [Start socket.io server](#server)
-* [Start webrtc client](#client)
+* [Start signalling server](#server)
+* [Start clients](#client)
 
 <a id="server"></a>
-## Start socket.io server
-在使用webrtc render之前，需要先启动webrtc信令服务器，即socket.io server，文件为test/webrtc_renderer/socket.io_server.js.
-该信令服务器为一个简单的SDP信令转发服务器，主要功能有三个：
-1. 创建一个namespace为livestream.webrtc的socket.io server.
-2. 加入该server的socket默认地将被加入到livestream房间.
-3. 收到client的SDP消息后，转发至livestream房间内其它socket.
+## Start signalling server
+在使用webrtc renderer之前，需要先启动webrtc信令服务器，文件为test/webrtc_renderer/socket.io_server.js.
+该信令服务器为一个简单的SDP信令转发服务器，主要功能是创建一个可以供两个webrtc 端点交换SDP信息的channel。channel名字可以由用户指定，默认为livestream。
 
 启动server:
-node test/webrtc_renderer/socket.io_server.js
+node test/webrtc_renderer/socket.io_server.js --channel=webrtc_test_channel
 
 <a id="client"></a>
-## Start webrtc client
+## Start client
 
 ## Initialize player
 ```html
 <script>
 	// You can use either a string for the player ID (i.e., `player`), 
 	// or `document.querySelector()` for any selector
+	
+	// 这里的channel为启动webrtc信令服务器时指定的channel名称，详细请看上面部分文档
+	let channel = 'webrtc_test_channel';
+	
 	var player = new MediaElement('player', {
 		pluginPath: "/path/to/shims/",
 		success: function(mediaElement, originalNode) {
 			// do things
-			mediaElement.setSrc('http://localhost:3030/livestream.webrtc');
+			mediaElement.setSrc(`http://localhost:3030/${channel}.webrtc`);
 		}
 	});
 </script>
 ```
-其中，setSrc的参数为带有namespace的socket.io server地址，在例子中，该地址为http://localhost:3030/livestream.webrtc，http://localhost:3030为server地址，livestream.webrtc为server的namespace。
-在MediaElement中，根据media type来选择render，为了在MediaElement使用webrtc render，在src中使用了以webrtc为后缀名的socket.io address。
+其中，setSrc的参数为带有channel参数的socket.io server地址，在例子中，channel为webrtc_test_channel，该server地址为http://localhost:3030/webrtc_test_channel.webrtc。
+在MediaElement中，根据media type来选择renderer，为了在MediaElement使用webrtc renderer，在src中使用了以webrtc为后缀名的socket.io server address。
 ## Open clients
-目前为止，webrtc render测试例子只支持两个clients同时在线视频对话，在浏览器中打开两次test/webrtc_renderer/webrtc.html，完成后，任意一端点击页面上的CreateOffer即可开启视频对话。
+默认地，同一个channel，webrtc renderer测试例子只支持两个clients同时在线视频对话，在浏览器中打开两次test/webrtc_renderer/webrtc.html，连接至同一个channel，完成后，任意一端点击页面上的CreateOffer即可开启视频对话。
 

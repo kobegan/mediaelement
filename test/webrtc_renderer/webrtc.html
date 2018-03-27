@@ -16,9 +16,12 @@
     $(function () {
         mejs.i18n.language('zh-cn');
 
+        // 这里的channel为启动webrtc信令服务器时指定的channel名称
+        let channel = 'webrtc_test_channel';
+
         player = new MediaElement('mediaplayer', {
             success: function(mediaElement, originalNode) {
-                mediaElement.setSrc('http://localhost:3030/livestream.webrtc');
+                mediaElement.setSrc(`http://localhost:3030/${channel}.webrtc`);
             }
         });
     });
