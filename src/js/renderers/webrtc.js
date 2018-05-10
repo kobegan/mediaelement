@@ -34,15 +34,15 @@ const WebRTC = {
             settings.options.adapter.path = typeof settings.options.adapter.path === 'string' ?
                 settings.options.adapter.path : 'https://webrtc.github.io/adapter/adapter-latest.js';
             settings.options.socket_io.path = typeof settings.options.socket_io.path === 'string' ?
-                settings.options.socket_io.path : 'https://cdnjs.cloudflare.com/ajax/libs/socket.io/2.0.4/socket.io.js';
+                settings.options.socket_io.path : 'https://cdnjs.cloudflare.com/ajax/libs/socket.io/2.1.0/socket.io.js';
 
-            let adapterLoaderPromise = loadScript(settings.options.adapter.path);
-            adapterLoaderPromise.then(() => {
+            let socketioLoaderPromise = loadScript(settings.options.socket_io.path);
+            socketioLoaderPromise.then(() => {
                 WebRTC._createPlayer(settings);
             });
 
-            WebRTC.promises.push(adapterLoaderPromise);
-            WebRTC.promises.push(loadScript(settings.options.socket_io.path));
+            WebRTC.promises.push(socketioLoaderPromise);
+            WebRTC.promises.push(loadScript(settings.options.adapter.path));
 
             return WebRTC.promises;
         } else {
@@ -222,6 +222,7 @@ const WebRTCRender = {
                         data: data
                     });
                 });
+
             };
 
         function handUp() {
@@ -309,6 +310,7 @@ const WebRTCRender = {
                 handUp();
                 throw error;
             });
+
         };
 
         const
