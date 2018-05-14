@@ -106,7 +106,8 @@ const WebRTCRender = {
 
         let node = null,
             socket = null,
-            peerConnection = null;
+            peerConnection = null,
+            canCreateOffer = false;
 
         if (mediaElement.originalNode === undefined || mediaElement.originalNode === null) {
             node = document.createElement('video');
@@ -119,24 +120,29 @@ const WebRTCRender = {
         node.autoplay = true;
 
         const addLocalStream = (peerConnection) => {
+            if(options.mediaToSend.audio || options.mediaToSend.video) {
                 navigator.mediaDevices.getUserMedia({
-                    audio: true,
-                    video: true
+                    audio: options.mediaToSend ? (options.mediaToSend.audio ? options.mediaToSend.audio: false) : false,
+                    video: options.mediaToSend ? (options.mediaToSend.video ? options.mediaToSend.video: false) : false
                 })
                     .then(gotStream)
                     .catch(function(e) {
-                        console.error('getUserMedia() error: ' + e.name);
+                        console.error('getUserMedia() error: ' + e.message);
                     });
-                function gotStream(stream) {
-                    stream.getTracks().forEach(
-                        function(track) {
-                            peerConnection.addTrack(
-                                track,
-                                stream
-                            );
-                        }
-                    );
-                }
+            } else {
+                canCreateOffer = true;
+            }
+            function gotStream(stream) {
+                console.info('got local stream');
+                stream.getTracks().forEach(
+                    function(track) {
+                        peerConnection.addTrack(
+                            track,
+                            stream
+                        );
+                    });
+                canCreateOffer = true;
+            }
             },
             onTrack = (peerConnection) => {
                 peerConnection.ontrack = (e) => {
@@ -214,7 +220,6 @@ const WebRTCRender = {
 
         const onConnect = () => {
                 console.info('=========on socket connected==========');
-
                 //subscribe sdp
                 socket.on('sdp', (data) => {
                     onSocketMessage({
@@ -223,15 +228,55 @@ const WebRTCRender = {
                     });
                 });
 
+
+                socket.on('connected', () => {
+                    console.info('on session connected!');
+                    let timeout = setInterval(() => {
+                        if(canCreateOffer) {
+                            node.createOffer();
+                            clearInterval(timeout);
+                        }
+                    }, 2000);
+                });
+
             };
 
         function handUp() {
+            canCreateOffer = false;
             if(mediaElement.peerConnection) {
                 mediaElement.peerConnection.close();
                 mediaElement.peerConnection = null;
             }
         }
 
+        function peerConnectionInit(peerConnection) {
+            if(peerConnection) {
+                addLocalStream(peerConnection);
+                onTrack(peerConnection);
+                onIceCandidate(peerConnection);
+                onIceConnectionStateChange(peerConnection);
+            }
+        }
+
+        function socketInit(socket) {
+            if(socket) {
+                socket.on('connect', onConnect);
+                socket.on('disconnect', () => {
+                    handUp();
+                });
+                socket.on('reconnect_failed', () => {
+                    handUp();
+                    throw Error('reconnect_failed');
+                });
+                socket.on('connect_timeout', () => {
+                    socket.open();
+                });
+                socket.on('connect_error', (error ) => {
+                    handUp();
+                    throw error;
+                });
+            }
+        }
 
         const
             props = mejs.html5media.properties,
@@ -246,34 +291,14 @@ const WebRTCRender = {
                             node[propName] = typeof value === 'object' && value.src ? value.src : value;
                             if (peerConnection !== null) {
                                 peerConnection.close();
-                                peerConnection = WebRTC._createPlayer({
-                                    options: options,
-                                    id: id
-                                });
+                                peerConnection = new RTCPeerConnection();
 
-                                addLocalStream(peerConnection);
-                                onTrack(peerConnection);
-                                onIceCandidate(peerConnection);
-                                onIceConnectionStateChange(peerConnection);
+                                peerConnectionInit(peerConnection);
                             }
                             if(socket !== null) {
                                 socket.close();
                                 socket = io(value);
-                                socket.on('connect', onConnect);
-                                socket.on('disconnect', () => {
-                                    socket.open();
-                                });
-                                socket.on('reconnect_failed', () => {
-                                    handUp();
-                                    throw Error('reconnect_failed');
-                                });
-                                socket.on('connect_timeout', () => {
-                                    socket.open();
-                                });
-                                socket.on('connect_error', (error ) => {
-                                    handUp();
-                                    throw error;
-                                });
+                                socketInit(socket);
                             }
                         } else {
                             node[propName] = value;
@@ -289,28 +314,10 @@ const WebRTCRender = {
 
         window['__ready__' + id] = (_peerConnection) => {
             mediaElement.peerConnection = peerConnection = _peerConnection;
-            addLocalStream(peerConnection);
-            onTrack(peerConnection);
-            onIceCandidate(peerConnection);
-            onIceConnectionStateChange(peerConnection);
+            peerConnectionInit(peerConnection);
 
             mediaElement.socket = socket = io(mediaFiles[0].src);
-            socket.on('connect', onConnect);
-            socket.on('disconnect', () => {
-                socket.open();
-            });
-            socket.on('reconnect_failed', () => {
-                handUp();
-                throw Error('reconnect_failed');
-            });
-            socket.on('connect_timeout', () => {
-                socket.open();
-            });
-            socket.on('connect_error', (error ) => {
-                handUp();
-                throw error;
-            });
-
+            socketInit(socket);
         };
 
         const
@@ -361,10 +368,12 @@ const WebRTCRender = {
             }
         };
 
-        node.createOffer = (offerOptions) => {
-            peerConnection.createOffer(
-                offerOptions
-            ).then(
+        node.createOffer = () => {
+            console.info('create offer');
+            peerConnection.createOffer({
+                offerToReveiveVideo: options.mediaToSend ? (options.mediaToReveive.video ? options.mediaToReveive.video: false) : false,
+                offerToReveiveAudio: options.mediaToSend ? (options.mediaToReveive.audio ? options.mediaToReveive.audio: false) : false
+            }).then(
                 onCreateOfferSuccess,
                 error => {
                     console.error('Failed to create session description: ' + error.toString());
