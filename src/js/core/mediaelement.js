@@ -24,7 +24,6 @@ class MediaElement {
 	 * @returns {Element|*}
 	 */
 	constructor (idOrNode, options, sources) {
-
 		const t = this;
 
 		sources = Array.isArray(sources) ? sources : null;
@@ -56,7 +55,6 @@ class MediaElement {
 
 		// create our node (note: older versions of iOS don't support Object.defineProperty on DOM nodes)
 		t.mediaElement = document.createElement(options.fakeNodeName);
-
 		let
 			id = idOrNode,
 			error = false
@@ -72,7 +70,6 @@ class MediaElement {
 		if (t.mediaElement.originalNode === undefined || t.mediaElement.originalNode === null) {
 			return null;
 		}
-
 		t.mediaElement.options = options;
 		id = id || `mejs_${(Math.random().toString().slice(2))}`;
 
@@ -83,7 +80,7 @@ class MediaElement {
 		// only if video/audio tags are detected
 		const tagName = t.mediaElement.originalNode.tagName.toLowerCase();
 		if (['video', 'audio'].indexOf(tagName) > -1 && !t.mediaElement.originalNode.getAttribute('preload')) {
-			t.mediaElement.originalNode.setAttribute('preload', 'none');
+			t.mediaElement.originalNode.setAttribute('preload', 'auto');
 		}
 
 		// add next to this one
@@ -91,7 +88,6 @@ class MediaElement {
 
 		// insert this one inside
 		t.mediaElement.appendChild(t.mediaElement.originalNode);
-
 		/**
 		 * Convert a non-SSL URL to BLOB to avoid issues with regular media types playing under a SSL website
 		 * @see https://poodll.com/ios-10-and-html5-video-and-html5-audio-on-https-sites/
@@ -167,7 +163,6 @@ class MediaElement {
 					break;
 			}
 		}
-
 		t.mediaElement.id = id;
 		t.mediaElement.renderers = {};
 		t.mediaElement.events = {};
@@ -502,6 +497,9 @@ class MediaElement {
 		 * Remove `mediaelement` completely and restore original media tag
 		 */
 		t.mediaElement.destroy = () => {
+            if(t.mediaElement.renderer) {
+                t.mediaElement.renderer.destroy();
+            }
 			const mediaElement = t.mediaElement.originalNode.cloneNode(true);
 			const wrapper = t.mediaElement.parentElement;
 			mediaElement.removeAttribute('id');

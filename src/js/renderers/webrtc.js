@@ -100,14 +100,15 @@ const WebRTCRender = {
      * @return {Object}
      */
     create: (mediaElement, options, mediaFiles) => {
-
+        console.dir(options);
         const id = mediaElement.id + '_' + options.prefix;
         let isActive = false;
 
         let node = null,
             socket = null,
             peerConnection = null,
-            canCreateOffer = false;
+            canCreateOffer = false,
+            canCreateAnswer = false;
 
         if (mediaElement.originalNode === undefined || mediaElement.originalNode === null) {
             node = document.createElement('video');
@@ -120,17 +121,21 @@ const WebRTCRender = {
         node.autoplay = true;
 
         const addLocalStream = (peerConnection) => {
-            if(options.mediaToSend.audio || options.mediaToSend.video) {
+            if(options.mediaToSend && (options.mediaToSend.audio === 'true' || options.mediaToSend.video === 'true')) {
                 navigator.mediaDevices.getUserMedia({
-                    audio: options.mediaToSend ? (options.mediaToSend.audio ? options.mediaToSend.audio: false) : false,
-                    video: options.mediaToSend ? (options.mediaToSend.video ? options.mediaToSend.video: false) : false
+                    audio: options.mediaToSend.audio === 'true',
+                    video: options.mediaToSend.video === 'true'
                 })
                     .then(gotStream)
                     .catch(function(e) {
                         console.error('getUserMedia() error: ' + e.message);
                     });
             } else {
-                canCreateOffer = true;
+                if(options.caller === 'true') {
+                    canCreateOffer = true;
+                } else {
+                    canCreateAnswer = true;
+                }
             }
             function gotStream(stream) {
                 console.info('got local stream');
@@ -141,7 +146,11 @@ const WebRTCRender = {
                             stream
                         );
                     });
-                canCreateOffer = true;
+                if(options.caller === 'true') {
+                    canCreateOffer = true;
+                } else {
+                    canCreateAnswer = true;
+                }
             }
             },
             onTrack = (peerConnection) => {
@@ -190,19 +199,25 @@ const WebRTCRender = {
         }
 
         function handleOffer(offer) {
-            peerConnection.setRemoteDescription(offer).then(
-                () => {
-                    peerConnection.createAnswer().then(
-                        onCreateAnswerSuccess,
-                        () => {
-                            console.info('Failed to create session description: ' + error.toString());
-                        }
-                    );
-                },
+            peerConnection.setRemoteDescription(offer).then(createAnswer,
                 error => {
                     console.error('Failed to set session description: ' + error.toString());
                 }
             );
+
+            function createAnswer() {
+                let timeout = setInterval(() => {
+                    if(canCreateAnswer) {
+                        peerConnection.createAnswer().then(
+                            onCreateAnswerSuccess,
+                            () => {
+                                console.info('Failed to create session description: ' + error.toString());
+                            }
+                        );
+                        clearInterval(timeout);
+                    }
+                }, 1000);
+            }
 
             function onCreateAnswerSuccess(answer) {
                 peerConnection.setLocalDescription(answer);
@@ -236,16 +251,22 @@ const WebRTCRender = {
                             node.createOffer();
                             clearInterval(timeout);
                         }
-                    }, 2000);
+                    }, 1000);
                 });
 
             };
 
         function handUp() {
             canCreateOffer = false;
+            canCreateAnswer = false;
             if(mediaElement.peerConnection) {
                 mediaElement.peerConnection.close();
                 mediaElement.peerConnection = null;
+            }
+
+            if(socket) {
+                socket.close();
+                socket = null;
             }
         }
 
@@ -297,7 +318,7 @@ const WebRTCRender = {
                             }
                             if(socket !== null) {
                                 socket.close();
-                                socket = io(value);
+                                socket = io(value, { forceNew: true });
                                 socketInit(socket);
                             }
                         } else {
@@ -316,7 +337,7 @@ const WebRTCRender = {
             mediaElement.peerConnection = peerConnection = _peerConnection;
             peerConnectionInit(peerConnection);
 
-            mediaElement.socket = socket = io(mediaFiles[0].src);
+            mediaElement.socket = socket = io(mediaFiles[0].src, { forceNew: true });
             socketInit(socket);
         };
 
@@ -360,6 +381,7 @@ const WebRTCRender = {
         };
 
         node.destroy = () => {
+            console.trace('render destroy!');
             if (peerConnection !== null) {
                 peerConnection.close();
             }
@@ -371,8 +393,8 @@ const WebRTCRender = {
         node.createOffer = () => {
             console.info('create offer');
             peerConnection.createOffer({
-                offerToReveiveVideo: options.mediaToSend ? (options.mediaToReveive.video ? options.mediaToReveive.video: false) : false,
-                offerToReveiveAudio: options.mediaToSend ? (options.mediaToReveive.audio ? options.mediaToReveive.audio: false) : false
+                offerToReveiveVideo: options.mediaToReveive ? options.mediaToReveive.video === 'true' : false,
+                offerToReveiveAudio: options.mediaToReveive ? options.mediaToReveive.audio === 'true' : false
             }).then(
                 onCreateOfferSuccess,
                 error => {
