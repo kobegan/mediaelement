@@ -58,9 +58,8 @@ const WebRTC = {
      * @param {Object} settings - an object with settings needed to instantiate RTCPeerConnection object
      */
     _createPlayer: (settings) => {
-        const peerConnection = new RTCPeerConnection();
-        window[`__ready__${settings.id}`](peerConnection);
-        return peerConnection;
+        window[`__ready__${settings.id}`]();
+        return;
     }
 };
 
@@ -72,7 +71,7 @@ const WebRTCRender = {
             path: 'https://webrtc.github.io/adapter/adapter-latest.js'
         },
         socket_io: {
-            path: 'https://cdnjs.cloudflare.com/ajax/libs/socket.io/2.0.4/socket.io.js'
+            path: 'https://cdnjs.cloudflare.com/ajax/libs/socket.io/2.1.0/socket.io.js'
         }
     },
 
@@ -107,8 +106,7 @@ const WebRTCRender = {
         let node = null,
             socket = null,
             peerConnection = null,
-            canCreateOffer = false,
-            canCreateAnswer = false;
+            local_stream_promise;
 
         if (mediaElement.originalNode === undefined || mediaElement.originalNode === null) {
             node = document.createElement('video');
@@ -120,62 +118,115 @@ const WebRTCRender = {
         node.setAttribute('id', id);
         node.autoplay = true;
 
-        const addLocalStream = (peerConnection) => {
-            if(options.mediaToSend && (options.mediaToSend.audio === 'true' || options.mediaToSend.video === 'true')) {
-                navigator.mediaDevices.getUserMedia({
+        function setStatus(text) {
+            console.info(text);
+        }
+
+        function setError(text) {
+            console.error(text);
+        }
+
+        function getLocalStream() {
+            // Add local stream
+            if(!options.mediaToSend || (options.mediaToSend.audio === 'false' && options.mediaToSend.video === 'false')) {
+                setStatus('media to send none!');
+                return Promise.resolve();
+            }
+
+            if (navigator.mediaDevices.getUserMedia) {
+                return navigator.mediaDevices.getUserMedia({
                     audio: options.mediaToSend.audio === 'true',
                     video: options.mediaToSend.video === 'true'
-                })
-                    .then(gotStream)
-                    .catch(function(e) {
-                        console.error('getUserMedia() error: ' + e.message);
-                    });
+                });
             } else {
-                if(options.caller === 'true') {
-                    canCreateOffer = true;
-                } else {
-                    canCreateAnswer = true;
-                }
+                return Promise.resolve();
             }
-            function gotStream(stream) {
-                console.info('got local stream');
-                stream.getTracks().forEach(
-                    function(track) {
-                        peerConnection.addTrack(
-                            track,
-                            stream
-                        );
-                    });
-                if(options.caller === 'true') {
-                    canCreateOffer = true;
-                } else {
-                    canCreateAnswer = true;
-                }
-            }
-            },
-            onTrack = (peerConnection) => {
-                peerConnection.ontrack = (e) => {
-                    if (node.srcObject !== e.streams[0]) {
-                        node.srcObject = e.streams[0];
-                        console.info('received remote stream');
-                    }
-                };
-            },
-            onIceCandidate = (peerConnection) => {
-                peerConnection.onicecandidate = function (event) {
-                    if (event.candidate) {
-                        socket.emit('sdp', event.candidate);
-                    }
+        }
 
-                };
-            },
-            onIceConnectionStateChange = (peerConnection) => {
-                if(peerConnection) {
-                    console.info('ICE state: ' + peerConnection.iceConnectionState);
+        function onIncomingOffer(sdp) {
+            peerConnection.setRemoteDescription(sdp).then(() => {
+                setStatus("Remote SDP set");
+                if (sdp.type !== "offer")
+                    return;
+                setStatus("Got SDP offer");
+                local_stream_promise.then(() => {
+                    setStatus("Got local stream, creating answer");
+                    peerConnection.createAnswer()
+                        .then(onLocalDescription).catch(setError);
+                }).catch(setError);
+            }).catch(setError);
+        }
+
+        function onLocalDescription(desc) {
+            setStatus("Got local description: " + JSON.stringify(desc));
+            peerConnection.setLocalDescription(desc).then(() => {
+                setStatus("Sending SDP answer");
+                socket.emit('sdp', desc);
+            });
+        }
+
+        function onRemoteStreamAdded(event) {
+            let videoTracks = event.stream.getVideoTracks();
+            let audioTracks = event.stream.getAudioTracks();
+
+            if (videoTracks.length > 0) {
+                console.log('Incoming stream: ' + videoTracks.length + ' video tracks and ' + audioTracks.length + ' audio tracks');
+                node.srcObject = event.stream;
+
+                node.addEventListener('loadstart', () => {
+                    setStatus((new Date()).toLocaleTimeString());
+                    setStatus('load start: ' + new Date());
+                });
+
+                node.addEventListener('loadedmetadata', () => {
+                    setStatus((new Date()).toLocaleTimeString());
+                    setStatus('loadedmetadata: ' + new Date());
+                });
+            } else {
+                setStatus('Stream with unknown tracks added, resetting');
+            }
+        }
+
+        function onIncomingICE(ice) {
+            setStatus("Got ice description: " + JSON.stringify(ice));
+            let candidate = new RTCIceCandidate(ice);
+            peerConnection.addIceCandidate(candidate).catch(setError);
+        }
+
+        function createPeerConnection() {
+            if(peerConnection) {
+                return;
+            }
+            // Reset connection attempts because we connected successfully
+
+            setStatus('Creating RTCPeerConnection');
+
+            peerConnection = new RTCPeerConnection();
+            peerConnection.onaddstream = onRemoteStreamAdded;
+            /* Send our video/audio to the other peer */
+            local_stream_promise = getLocalStream().then((stream) => {
+                setStatus('Adding local stream');
+                if(stream) {
+                    peerConnection.addStream(stream);
                 }
+                return stream;
+            }).catch(setError);
+
+            peerConnection.onicecandidate = (event) => {
+                // We have a candidate, send it to the remote party with the
+                // same uuid
+                if (event.candidate === null) {
+                    setStatus("ICE Candidate was null, done");
+                    return;
+                }
+                setStatus('Sending candidate: ' + JSON.stringify(event.candidate));
+                socket.emit('sdp', event.candidate);
             };
 
-        function  onSocketMessage(msgObj) {
+            setStatus("Created peer connection for call, waiting for SDP");
+        }
+
+        function  onSdpMessage(msgObj) {
             let topic, data;
 
             topic = msgObj.topic;
@@ -184,81 +235,47 @@ const WebRTCRender = {
             if(topic === 'sdp' && data !== undefined) {
                 switch(data.type) {
                     case "offer":
-                        handleOffer(data);
+                        onIncomingOffer(data);
                         break;
                     case "answer":
-                        handleAnswer(data);
+                        onIncomingAnswer(data);
                         break;
                     default:
                         break;
                 }
                 if(data.candidate) {
-                    handleCandidate(data);
+                    onIncomingICE(data);
                 }
             }
         }
-
-        function handleOffer(offer) {
-            peerConnection.setRemoteDescription(offer).then(createAnswer,
-                error => {
-                    console.error('Failed to set session description: ' + error.toString());
-                }
-            );
-
-            function createAnswer() {
-                let timeout = setInterval(() => {
-                    if(canCreateAnswer) {
-                        peerConnection.createAnswer().then(
-                            onCreateAnswerSuccess,
-                            () => {
-                                console.info('Failed to create session description: ' + error.toString());
-                            }
-                        );
-                        clearInterval(timeout);
-                    }
-                }, 1000);
-            }
-
-            function onCreateAnswerSuccess(answer) {
-                peerConnection.setLocalDescription(answer);
-                socket.emit('sdp', answer);
-            }
-        }
         
-        function handleAnswer(answer) {
-            peerConnection.setRemoteDescription(answer);
-        }
-        
-        function handleCandidate(candidate) {
-            peerConnection.addIceCandidate(candidate).catch(e => console.error(e));
+        function onIncomingAnswer(answer) {
+            peerConnection.setRemoteDescription(answer).catch(setError);
         }
 
         const onConnect = () => {
                 console.info('=========on socket connected==========');
                 //subscribe sdp
                 socket.on('sdp', (data) => {
-                    onSocketMessage({
+                    onSdpMessage({
                         topic: 'sdp',
                         data: data
                     });
                 });
 
-
                 socket.on('connected', () => {
                     console.info('on session connected!');
-                    let timeout = setInterval(() => {
-                        if(canCreateOffer) {
+                    if(options.caller === 'true') {
+                        local_stream_promise.then(() => {
+                            setStatus("Got local stream, creating offer");
                             node.createOffer();
-                            clearInterval(timeout);
-                        }
-                    }, 1000);
+                        }).catch(setError);
+                    }
                 });
 
             };
 
         function handUp() {
-            canCreateOffer = false;
-            canCreateAnswer = false;
             if(mediaElement.peerConnection) {
                 mediaElement.peerConnection.close();
                 mediaElement.peerConnection = null;
@@ -270,15 +287,6 @@ const WebRTCRender = {
             }
         }
 
-        function peerConnectionInit(peerConnection) {
-            if(peerConnection) {
-                addLocalStream(peerConnection);
-                onTrack(peerConnection);
-                onIceCandidate(peerConnection);
-                onIceConnectionStateChange(peerConnection);
-            }
-        }
-
         function socketInit(socket) {
             if(socket) {
                 socket.on('connect', onConnect);
@@ -287,14 +295,13 @@ const WebRTCRender = {
                 });
                 socket.on('reconnect_failed', () => {
                     handUp();
-                    throw Error('reconnect_failed');
                 });
                 socket.on('connect_timeout', () => {
                     socket.open();
                 });
                 socket.on('connect_error', (error ) => {
                     handUp();
-                    throw error;
+                    setStatus(error.message);
                 });
             }
         }
@@ -312,15 +319,18 @@ const WebRTCRender = {
                             node[propName] = typeof value === 'object' && value.src ? value.src : value;
                             if (peerConnection !== null) {
                                 peerConnection.close();
-                                peerConnection = new RTCPeerConnection();
-
-                                peerConnectionInit(peerConnection);
+                                peerConnection = null;
                             }
+
+                            createPeerConnection();
+
                             if(socket !== null) {
                                 socket.close();
-                                socket = io(value, { forceNew: true });
-                                socketInit(socket);
+                                socket = null;
                             }
+
+                            socket = io(value, { forceNew: true });
+                            socketInit(socket);
                         } else {
                             node[propName] = value;
                         }
@@ -333,9 +343,9 @@ const WebRTCRender = {
             assignGettersSetters(props[i]);
         }
 
-        window['__ready__' + id] = (_peerConnection) => {
-            mediaElement.peerConnection = peerConnection = _peerConnection;
-            peerConnectionInit(peerConnection);
+        window['__ready__' + id] = () => {
+            createPeerConnection();
+            mediaElement.peerConnection = peerConnection;
 
             mediaElement.socket = socket = io(mediaFiles[0].src, { forceNew: true });
             socketInit(socket);
@@ -391,7 +401,7 @@ const WebRTCRender = {
         };
 
         node.createOffer = () => {
-            console.info('create offer');
+            setStatus('create offer');
             peerConnection.createOffer({
                 offerToReveiveVideo: options.mediaToReveive ? options.mediaToReveive.video === 'true' : false,
                 offerToReveiveAudio: options.mediaToReveive ? options.mediaToReveive.audio === 'true' : false
@@ -403,7 +413,6 @@ const WebRTCRender = {
             );
 
             function onCreateOfferSuccess(desc) {
-
                 peerConnection.setLocalDescription(desc).then(
                     function() {
                         socket.emit('sdp', desc);
